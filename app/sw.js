@@ -1,7 +1,7 @@
 // sw.js — lets the installed app open with no signal.
 // App files come from the network when it answers within 3 seconds (so updates
 // show up right away) and from the cache otherwise; fonts come from the cache.
-const CACHE = 'gcs-mobile-v2';
+const CACHE = 'gcs-mobile-v3';
 const CORE = [
   './',
   'index.html',

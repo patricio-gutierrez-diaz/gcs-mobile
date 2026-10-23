@@ -376,7 +376,7 @@ function weaponCard(w, ranged) {
     : [w.damage, w.reach && `Reach ${w.reach}`, w.parry && w.parry !== 'No' ? `Parry ${w.parry}` : 'No parry', w.block && w.block !== 'No' && `Block ${w.block}`, w.strength && `ST ${w.strength}`];
   return h('div', { class: 'card weapon' },
     h('div', { class: 'row-main' },
-      h('div', { class: 'w-name' }, h('span', { class: 'row-title' }, w.name), w.usage ? h('span', { class: 'muted small' }, w.usage) : null),
+      h('div', { class: 'w-name' }, h('span', { class: 'row-title' }, w.name), w.usage ? h('span', { class: 'muted small' }, w.usage) : null, refTags(w.reference)),
       h('div', { class: 'chips' }, chips.filter(Boolean).map(t => h('span', { class: 'chip' }, t)))),
     h('div', { class: 'roll' }, h('span', { class: 'roll-n' }, w.level == null ? '—' : String(w.level)), h('span', { class: 'roll-l' }, 'to hit')));
 }
@@ -410,8 +410,23 @@ function combatScreen() {
           h('span', { class: `mod-n ${m.amount < 0 ? 'neg' : 'pos'}` }, signed(m.amount)),
           h('span', { class: 'row-main' },
             h('span', { class: 'row-title' }, m.kind === 'Reaction' ? `Reaction ${m.situation}` : m.situation),
-            h('span', { class: 'row-sub' }, m.source)))))) : null,
+            subLine(m.source, m.reference)))))) : null,
   ];
+}
+
+// ---------- page references ----------
+
+/** Small tags such as "B230" or "MA43"; the full book name is in the title and Book References. */
+function refTags(reference) {
+  return gcs.parseReferences(reference).map(r =>
+    h('span', { class: 'ref', title: r.book ? `${r.book}, page ${r.page}` : null }, r.code));
+}
+
+/** A grey sub line: its text, then the reference tags. Nothing when both are empty. */
+function subLine(text, reference) {
+  const tags = refTags(reference);
+  if (!text && !tags.length) return null;
+  return h('span', { class: 'row-sub meta-line' }, text ? h('span', null, text) : null, tags);
 }
 
 // ---------- Skills ----------
@@ -419,7 +434,7 @@ function combatScreen() {
 function skillLeaf(n, depth) {
   const meta = [n.technique ? 'Technique' : null, n.difficulty, plural(n.points, 'pt')].filter(Boolean).join(' · ');
   return h('div', { class: `row depth-${Math.min(depth, 3)}` },
-    h('span', { class: 'row-main' }, h('span', { class: 'row-title' }, n.title), h('span', { class: 'row-sub' }, meta), n.notes ? h('span', { class: 'row-sub' }, n.notes) : null),
+    h('span', { class: 'row-main' }, h('span', { class: 'row-title' }, n.title), subLine(meta, n.reference), n.notes ? h('span', { class: 'row-sub' }, n.notes) : null),
     h('span', { class: 'lvl' }, h('span', { class: 'lvl-n' }, n.level == null ? '—' : String(n.level)), h('span', { class: 'lvl-r' }, n.relative)));
 }
 
@@ -446,7 +461,7 @@ function skillResults() {
   const searching = !!S.skillQuery.trim();
   const shown = S.char.skills
     .filter(s => S.skillFilter === 'All' || s.title === S.skillFilter)
-    .map(s => ({ ...s, children: filterTree(s.children, S.skillQuery, n => `${n.title} ${n.notes}`) }))
+    .map(s => ({ ...s, children: filterTree(s.children, S.skillQuery, n => `${n.title} ${n.notes} ${n.reference}`) }))
     .filter(s => s.children.length);
   if (!shown.length) return h('p', { class: 'muted center' }, 'No skills match.');
   return shown.map(s => section(`skill:${s.id}`, s.title, `${plural(s.count, 'skill')} · ${plural(s.points, 'pt')}`,
@@ -458,12 +473,12 @@ function skillResults() {
 function spellLeaf(n, depth) {
   const open = S.openSpell === n.id;
   const summary = [n.spellClass, n.cost && `Cost ${n.cost}`, n.time].filter(Boolean).join(' · ');
-  const facts = [['Class', n.spellClass], ['Cost', n.cost], ['Maintain', n.maintain], ['Time', n.time], ['Duration', n.duration], ['Resist', n.resist], ['College', n.college], ['Reference', n.reference]]
+  const facts = [['Class', n.spellClass], ['Cost', n.cost], ['Maintain', n.maintain], ['Time', n.time], ['Duration', n.duration], ['Resist', n.resist], ['College', n.college], ['Reference', gcs.describeReferences(n.reference)]]
     .filter(([, v]) => v);
   const attacks = (n.raw.weapons || []).map(w => [w.usage, w.calc?.damage, w.calc?.level != null && `skill ${w.calc.level}`, w.reach && `reach ${w.reach}`, w.range && `range ${w.calc?.range ?? w.range}`].filter(Boolean).join(' · '));
   return h('div', { class: `spell depth-${Math.min(depth, 3)}${open ? ' open' : ''}` },
     h('button', { type: 'button', class: 'row', 'aria-expanded': String(open), onclick: () => { S.openSpell = open ? null : n.id; render(); } },
-      h('span', { class: 'row-main' }, h('span', { class: 'row-title' }, n.title), h('span', { class: 'row-sub' }, summary)),
+      h('span', { class: 'row-main' }, h('span', { class: 'row-title' }, n.title), subLine(summary, n.reference)),
       h('span', { class: 'lvl' }, h('span', { class: 'lvl-n' }, n.level == null ? '—' : String(n.level)), h('span', { class: 'lvl-r' }, n.relative)),
       chevron(open)),
     open ? h('div', { class: 'details' },
@@ -483,7 +498,7 @@ function spellsScreen() {
 function spellResults() {
   const searching = !!S.spellQuery.trim();
   const shown = S.char.spells
-    .map(s => ({ ...s, children: filterTree(s.children, S.spellQuery, n => `${n.title} ${n.college} ${n.spellClass}`) }))
+    .map(s => ({ ...s, children: filterTree(s.children, S.spellQuery, n => `${n.title} ${n.college} ${n.spellClass} ${n.reference}`) }))
     .filter(s => s.children.length);
   if (!shown.length) return h('p', { class: 'muted center' }, 'No spells match.');
   return shown.map(s => section(`spell:${s.id}`, s.title, plural(s.count, 'spell'),
@@ -516,19 +531,19 @@ function qtyStepper(n) {
 function itemRow(n, depth) {
   const open = S.openItem === n.id;
   const inline = n.maxUses != null ? usesStepper(n) : n.quantity !== 1 ? qtyStepper(n) : h('span', { class: 'row-meta' }, n.extendedWeight);
-  const sub = [n.notes, ...n.modifiers].filter(Boolean)[0] || (n.quantity !== 1 ? `${n.weight} each` : '');
+  const sub = n.notes || n.modifiers[0]?.label || (n.quantity !== 1 ? `${n.weight} each` : '');
   return h('div', { class: `item depth-${Math.min(depth, 3)}${open ? ' open' : ''}` },
     h('div', { class: 'row', role: 'button', tabindex: '0', 'aria-expanded': String(open),
       onclick: () => { S.openItem = open ? null : n.id; render(); },
       onkeydown: e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); S.openItem = open ? null : n.id; render(); } } },
-      h('span', { class: 'row-main' }, h('span', { class: 'row-title' }, n.title), sub ? h('span', { class: 'row-sub' }, sub) : null),
+      h('span', { class: 'row-main' }, h('span', { class: 'row-title' }, n.title), subLine(sub, n.reference)),
       inline),
     open ? h('div', { class: 'details' },
       h('div', { class: 'facts' },
-        [['Quantity', String(n.quantity)], ['Weight', n.quantity !== 1 ? `${n.weight} each · ${n.extendedWeight}` : n.extendedWeight], ['Value', String(n.value)], ['Equipped', n.equipped ? 'Yes' : 'No'], ['Reference', n.reference]]
+        [['Quantity', String(n.quantity)], ['Weight', n.quantity !== 1 ? `${n.weight} each · ${n.extendedWeight}` : n.extendedWeight], ['Value', String(n.value)], ['Equipped', n.equipped ? 'Yes' : 'No'], ['Reference', gcs.describeReferences(n.reference)]]
           .filter(([, v]) => v).map(([k, v]) => h('div', { class: 'fact' }, h('span', { class: 'label' }, k), h('span', null, v)))),
       n.notes ? h('p', { class: 'note-text' }, n.notes) : null,
-      n.modifiers.length ? h('ul', { class: 'mods' }, n.modifiers.map(m => h('li', null, m))) : null,
+      n.modifiers.length ? h('ul', { class: 'mods' }, n.modifiers.map(m => h('li', null, m.label, ' ', refTags(m.reference)))) : null,
       h('div', { class: 'detail-actions' },
         h('span', { class: 'label' }, 'Quantity'), qtyStepper(n),
         n.maxUses != null ? [h('span', { class: 'label' }, 'Uses'), usesStepper(n)] : null)) : null);
@@ -544,7 +559,7 @@ function gearTree(nodes, depth) {
     return [
       h('button', { type: 'button', class: `row sub-h depth-${Math.min(depth, 3)}`, 'aria-expanded': has ? String(open) : null, disabled: !has, onclick: () => toggle(key) },
         has ? chevron(open) : h('span', { class: 'chev-space' }),
-        h('span', { class: 'row-main' }, h('span', { class: 'row-title' }, n.quantity !== 1 ? `${n.title} ×${n.quantity}` : n.title), n.notes ? h('span', { class: 'row-sub' }, n.notes) : null),
+        h('span', { class: 'row-main' }, h('span', { class: 'row-title' }, n.quantity !== 1 ? `${n.title} ×${n.quantity}` : n.title), subLine(n.notes, n.reference)),
         h('span', { class: 'row-meta' }, meta)),
       open ? gearTree(n.children, depth + 1) : null,
     ];
@@ -572,7 +587,7 @@ function gearScreen() {
 function traitLeaf(n, depth) {
   return h('div', { class: `row depth-${Math.min(depth, 3)}${n.disabled ? ' off' : ''}` },
     h('span', { class: 'row-main' }, h('span', { class: 'row-title' }, n.title),
-      n.detail ? h('span', { class: 'row-sub' }, n.detail) : null,
+      subLine(n.detail, n.reference),
       n.notes ? h('span', { class: 'row-sub' }, n.notes) : null),
     h('span', { class: `pts-chip ${n.points < 0 ? 'neg' : n.points > 0 ? 'pos' : ''}` }, signed(n.points)));
 }
@@ -670,6 +685,13 @@ function moreScreen() {
           h('span', { class: `mod-n ${r.points < 0 ? 'neg' : 'pos'}` }, signed(r.points)),
           h('span', { class: 'row-main' }, h('span', { class: 'row-title' }, r.reason || '—'),
             h('span', { class: 'row-sub' }, r.when ? new Date(r.when).toLocaleDateString([], { year: 'numeric', month: 'short', day: 'numeric' }) : '')))))) : null,
+    c.books.length ? section('books', 'Book References', plural(c.books.length, 'book'),
+      () => h('div', { class: 'card list' },
+        h('p', { class: 'row-sub row-pad' }, 'Tags like B230 mean book and page: B230 is the Basic Set, page 230. Pages after 336 are in the Basic Set’s Campaigns volume.'),
+        c.books.map(b => h('div', { class: 'row' },
+          h('span', { class: 'ref ref-lg' }, b.prefix),
+          h('span', { class: 'row-main' }, h('span', { class: 'row-title' }, b.name || 'Not a standard GURPS book code'), b.name ? null : h('span', { class: 'row-sub' }, 'Likely a house-rule or custom source in your GCS library')),
+          h('span', { class: 'row-meta' }, plural(b.count, 'entry', 'entries')))))) : null,
     plainSection('This Phone',
       h('div', { class: 'card list' },
         h('button', { type: 'button', class: 'row action', onclick: exportCharacter }, icon('share', 20), h('span', { class: 'row-main' }, h('span', { class: 'row-title' }, 'Export .gcs file'), h('span', { class: 'row-sub' }, 'Includes tracked HP, FP, uses and quantities'))),

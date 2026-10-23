@@ -72,6 +72,69 @@ export function evalFormula(expr, vars) {
   }
 }
 
+// ---- Page references ("B230", "MA43", "B51,MA43") ----
+
+/** GURPS 4e book abbreviations as GCS libraries use them. Unknown codes are shown as-is. */
+export const BOOKS = {
+  B: 'Basic Set',
+  BT: 'Bio-Tech',
+  DFA: 'Dungeon Fantasy RPG: Adventurers',
+  DFE: 'Dungeon Fantasy RPG: Exploits',
+  DFM: 'Dungeon Fantasy RPG: Monsters',
+  DFS: 'Dungeon Fantasy RPG: Spells',
+  F: 'Fantasy',
+  HT: 'High-Tech',
+  LT: 'Low-Tech',
+  M: 'Magic',
+  MA: 'Martial Arts',
+  P: 'Powers',
+  PSI: 'Psionic Powers',
+  SU: 'Supers',
+  TH: 'Thaumatology',
+  TS: 'Tactical Shooting',
+  UT: 'Ultra-Tech',
+};
+
+/**
+ * Split a reference field into its parts:
+ * "B51,MA43" → [{ code: 'B51', prefix: 'B', page: '51', book: 'Basic Set: Characters' }, …]
+ */
+export function parseReferences(text) {
+  if (!text) return [];
+  return String(text).split(/\s*[,;]\s*/).filter(Boolean).map(code => {
+    const m = code.match(/^([A-Za-z][A-Za-z0-9]*?)(\d+(?:\s*[-–]\s*\d+)?)$/);
+    if (!m) return { code, prefix: '', page: '', book: '' };
+    const [, prefix, page] = m;
+    let book = BOOKS[prefix.toUpperCase()] || '';
+    // The Basic Set's two volumes share one page count: Characters ends at 336.
+    if (prefix.toUpperCase() === 'B') book = parseInt(page, 10) > 336 ? 'Basic Set: Campaigns' : 'Basic Set: Characters';
+    return { code, prefix: prefix.toUpperCase(), page, book };
+  });
+}
+
+/** "Basic Set: Characters p. 51 · Martial Arts p. 43" (unknown codes stay as written). */
+export function describeReferences(text) {
+  return parseReferences(text).map(r => (r.book ? `${r.book} p. ${r.page}` : r.code)).join(' · ');
+}
+
+/** Every book a character's entries point to, with how many entries cite it. */
+function bookList(data) {
+  const counts = new Map();
+  const add = reference => {
+    for (const r of parseReferences(reference)) {
+      const key = r.prefix || r.code;
+      counts.set(key, (counts.get(key) || 0) + 1);
+    }
+  };
+  const count = row => {
+    add(row.reference);
+    for (const m of activeModifiers(row)) add(m.reference);
+  };
+  for (const key of ['traits', 'skills', 'spells', 'equipment', 'other_equipment']) walkRows(data[key], count);
+  return [...counts].map(([prefix, n]) => ({ prefix, name: BOOKS[prefix] || '', count: n }))
+    .sort((a, b) => b.count - a.count || a.prefix.localeCompare(b.prefix));
+}
+
 const KIND = { traits: 'trait', skills: 'skill', spells: 'spell', equipment: 'equipment', other_equipment: 'equipment', notes: 'note' };
 const LOOSE_TITLE = { trait: 'Traits', skill: 'Skills', spell: 'Spells', note: 'Notes' };
 
@@ -150,7 +213,7 @@ function describe(row, kind, container) {
         extendedWeight: row.calc?.extended_weight ?? '0 lb',
         value: row.calc?.extended_value ?? 0,
         notes: resolveText(row.local_notes, rep),
-        modifiers: activeModifiers(row).map(m => modifierLabel(m, rep)),
+        modifiers: activeModifiers(row).map(m => ({ label: modifierLabel(m, rep), reference: m.reference || '' })),
         reference: row.reference || '',
       };
     case 'note': {
@@ -221,6 +284,7 @@ function collectWeapons(data) {
       const entry = {
         id: w.id,
         name: ownerName,
+        reference: owner.reference || '',
         usage: resolveText(w.usage, owner.replacements),
         level: w.calc?.level ?? null,
         damage: w.calc?.damage ?? '',
@@ -252,11 +316,11 @@ function collectWeapons(data) {
 function collectModifiers(data) {
   const reactions = [];
   const conditional = [];
-  const take = (features, source, levels, rep) => {
+  const take = (features, source, levels, rep, reference) => {
     for (const f of features || []) {
       if (f.type !== 'reaction_bonus' && f.type !== 'conditional_modifier') continue;
       const amount = (f.amount || 0) * (f.per_level ? (levels || 1) : 1);
-      const entry = { amount, situation: resolveText(f.situation, rep), source };
+      const entry = { amount, situation: resolveText(f.situation, rep), source, reference: reference || '' };
       (f.type === 'reaction_bonus' ? reactions : conditional).push(entry);
     }
   };
@@ -264,14 +328,14 @@ function collectModifiers(data) {
     if (row.disabled || anc.some(a => a.disabled) || isContainer(row)) return;
     const name = resolveText(row.name, row.replacements);
     const levels = row.calc?.current_level ?? row.levels;
-    take(row.features, name, levels, row.replacements);
-    for (const m of activeModifiers(row)) take(m.features, `${name} (${resolveText(m.name, row.replacements)})`, levels, row.replacements);
+    take(row.features, name, levels, row.replacements, row.reference);
+    for (const m of activeModifiers(row)) take(m.features, `${name} (${resolveText(m.name, row.replacements)})`, levels, row.replacements, m.reference || row.reference);
   });
   walkRows(data.equipment, (row, anc) => {
     if (!row.equipped || !anc.every(a => a.equipped)) return;
     const name = resolveText(row.description, row.replacements);
-    take(row.features, name, 1, row.replacements);
-    for (const m of activeModifiers(row)) take(m.features, name, 1, row.replacements);
+    take(row.features, name, 1, row.replacements, row.reference);
+    for (const m of activeModifiers(row)) take(m.features, name, 1, row.replacements, m.reference || row.reference);
   });
   return { reactions, conditional };
 }
@@ -384,6 +448,7 @@ export function parseCharacter(data) {
     weapons: collectWeapons(data),
     modifiers: collectModifiers(data),
     hitLocations: hitLocations(data),
+    books: bookList(data),
   };
 }
 

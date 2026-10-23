@@ -235,3 +235,10 @@ button.pool-val { text-decoration: underline dotted var(--line-2); text-underlin
 .add-row { min-height: 50px; gap: 10px; color: var(--accent-text); }
 .add-row .row-title { color: var(--accent-text); font-weight: 600; }
 .card.list > .note + .add-row, .card.list > .note + .note { border-top: 1px solid var(--line); }
+
+/* ---------- page references ---------- */
+.meta-line { display: flex; flex-wrap: wrap; align-items: center; gap: 3px 8px; }
+.ref { display: inline-flex; align-items: center; padding: 1px 6px; border-radius: 5px; border: 1px solid var(--line-2); color: var(--muted); font-size: 11px; font-weight: 600; letter-spacing: 0.02em; line-height: 1.5; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.w-name .ref { align-self: center; }
+.ref-lg { min-width: 44px; justify-content: center; padding: 3px 6px; font-size: 13px; color: var(--accent-text); border-color: var(--accent-line); flex-shrink: 0; }
+.mods .ref { margin-left: 2px; vertical-align: 1px; }
