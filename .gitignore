@@ -1,0 +1,5 @@
+# Character files hold players' details and portraits; keep them out of this public repo.
+*.gcs
+samples/
+node_modules/
+.DS_Store

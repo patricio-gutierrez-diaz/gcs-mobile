@@ -1,0 +1,16 @@
+{
+  "name": "GCS Mobile",
+  "short_name": "GCS Mobile",
+  "description": "GURPS Character Sheet files on your phone, with HP, FP and item tracking.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#14161b",
+  "theme_color": "#1b1e25",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
