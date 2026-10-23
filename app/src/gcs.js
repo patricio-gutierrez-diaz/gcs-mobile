@@ -456,6 +456,49 @@ export function setUses(data, id, uses) {
   touch(data);
 }
 
+// ---- Notes: edit, add, delete ----
+
+/** A new id in GCS's style: one kind letter + 16 random characters. */
+function newId(prefix) {
+  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  return prefix + Array.from(bytes, b => alphabet[b & 63]).join('');
+}
+
+/** Change a note's text (GCS stores note text as markdown). */
+export function setNoteText(data, id, text) {
+  const found = findIn(data.notes, id, []);
+  if (!found) throw new Error('That note is no longer in this file.');
+  found.row.markdown = String(text);
+  touch(data);
+}
+
+/** Add a note at the top level, or inside the note container `parentId`. Returns its id. */
+export function addNote(data, parentId, text) {
+  const row = { id: newId('n'), markdown: String(text) };
+  if (parentId) {
+    const found = findIn(data.notes, parentId, []);
+    if (!found) throw new Error('That note group is no longer in this file.');
+    if (!Array.isArray(found.row.children)) found.row.children = [];
+    found.row.children.push(row);
+  } else {
+    if (!Array.isArray(data.notes)) data.notes = [];
+    data.notes.push(row);
+  }
+  touch(data);
+  return row.id;
+}
+
+/** Delete a note (and anything inside it). */
+export function deleteNote(data, id) {
+  const found = findIn(data.notes, id, []);
+  if (!found) return;
+  const list = found.parents.length ? found.parents[found.parents.length - 1].children : data.notes;
+  list.splice(list.indexOf(found.row), 1);
+  if (!data.notes.length) delete data.notes;
+  touch(data);
+}
+
 function touch(data) {
   data.modified_date = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
 }

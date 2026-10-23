@@ -16,6 +16,13 @@ export function h(tag, props, ...children) {
   return el;
 }
 
+/** Replace an element's children with a node, a string, or a (nested) array of them. */
+export function fill(el, content) {
+  el.replaceChildren();
+  append(el, [content]);
+  return el;
+}
+
 function append(el, children) {
   for (const child of children.flat(Infinity)) {
     if (child == null || child === false || child === '') continue;
@@ -38,6 +45,9 @@ const ICONS = {
   upload: '<path d="M12 16V4"/><path d="M7 9l5-5 5 5"/><path d="M5 20h14"/>',
   share: '<path d="M12 4v11"/><path d="M8 8l4-4 4 4"/><path d="M6 12v7h12v-7"/>',
   trash: '<path d="M5 7h14"/><path d="M10 7V5h4v2"/><path d="M7 7l1 13h8l1-13"/>',
+  notes: '<path d="M6 3.5h9l3.5 3.5v13.5H6z"/><path d="M14.5 3.5V7.5h4"/><path d="M9 12h6.5M9 16h6.5"/>',
+  edit: '<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13.5 6.5l4 4"/>',
+  plus: '<path d="M12 5v14M5 12h14"/>',
 };
 
 export function icon(name, size = 22, extraClass = '') {

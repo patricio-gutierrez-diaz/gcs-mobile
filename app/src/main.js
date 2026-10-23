@@ -1,5 +1,5 @@
-// main.js — the app: character list, the six sheet screens, and session tracking.
-import { h, icon, signed, plural } from './ui.js';
+// main.js — the app: character list, the sheet screens, session tracking and notes.
+import { h, icon, signed, plural, fill } from './ui.js';
 import * as gcs from './gcs.js';
 import * as store from './store.js';
 
@@ -18,6 +18,8 @@ const S = {
   openSpell: null,
   openItem: null,
   savedAt: null,
+  editNote: null,     // id of the note being edited, or 'new:<container id>' / 'new:' for a new one
+  noteDraft: '',
 };
 
 // ---------- rendering ----------
@@ -35,6 +37,37 @@ function toast(message) {
   document.body.append(el);
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => el.remove(), 4000);
+}
+
+/**
+ * Bottom-sheet number entry: type an amount, then Subtract, Add or Set.
+ * Used by every tracked number (HP, FP, uses, quantities).
+ */
+function numberSheet({ title, current, min = -Infinity, max = Infinity, subtractLabel = 'Subtract', addLabel = 'Add', apply }) {
+  const input = h('input', { type: 'number', inputmode: 'numeric', pattern: '[0-9]*', class: 'num-input', 'aria-label': `Amount for ${title}`, placeholder: '0' });
+  const close = () => { overlay.remove(); document.removeEventListener('keydown', onKey); };
+  const go = mode => {
+    const n = Math.abs(parseInt(input.value, 10));
+    if (!Number.isFinite(n)) { input.focus(); return; }
+    let v = mode === 'set' ? n : mode === 'add' ? current + n : current - n;
+    v = Math.max(min, Math.min(max, v));
+    close();
+    if (v !== current) apply(v);
+  };
+  const onKey = e => { if (e.key === 'Escape') close(); };
+  input.addEventListener('keydown', e => { if (e.key === 'Enter') go('set'); });
+  const overlay = h('div', { class: 'overlay', onclick: e => { if (e.target === overlay) close(); } },
+    h('div', { class: 'num-sheet', role: 'dialog', 'aria-modal': 'true', 'aria-label': title },
+      h('div', { class: 'spread' }, h('strong', null, title), h('span', { class: 'muted small' }, max < Infinity ? `Now ${current} of ${max}` : `Now ${current}`)),
+      input,
+      h('div', { class: 'num-btns' },
+        h('button', { type: 'button', class: 'btn', onclick: () => go('sub') }, `− ${subtractLabel}`),
+        h('button', { type: 'button', class: 'btn', onclick: () => go('add') }, `+ ${addLabel}`),
+        h('button', { type: 'button', class: 'btn primary', onclick: () => go('set') }, 'Set to')),
+      h('button', { type: 'button', class: 'btn ghost wide', onclick: close }, 'Cancel')));
+  document.addEventListener('keydown', onKey);
+  document.body.append(overlay);
+  input.focus();
 }
 
 // ---------- characters ----------
@@ -151,6 +184,11 @@ function plainSection(title, ...content) {
   return h('section', { class: 'sec' }, h('h2', { class: 'sec-title sec-static' }, title), content);
 }
 
+/** A collapsible section whose content is already built; keyed by its title. */
+function box(title, meta, ...content) {
+  return section(`box:${S.tab}:${title}`, title, meta, () => content);
+}
+
 /**
  * Rows for a tree of nodes inside a card. Nested containers get their own
  * collapsible sub-header; leaves are drawn by `leaf`.
@@ -226,6 +264,7 @@ const TABS = [
   { id: 'skills', label: 'Skills', icon: 'skills' },
   { id: 'spells', label: 'Spells', icon: 'spells' },
   { id: 'gear', label: 'Gear', icon: 'gear' },
+  { id: 'notes', label: 'Notes', icon: 'notes' },
   { id: 'more', label: 'More', icon: 'more' },
 ];
 
@@ -235,6 +274,7 @@ function visibleTabs() {
 
 function setTab(id) {
   S.tab = id;
+  S.editNote = null;
   S.ui.tab = id;
   store.saveUi(S.id, S.ui);
   render(true);
@@ -243,7 +283,7 @@ function setTab(id) {
 function sheet() {
   const tabs = visibleTabs();
   if (!tabs.some(t => t.id === S.tab)) S.tab = 'stats';
-  const screens = { stats: statsScreen, combat: combatScreen, skills: skillsScreen, spells: spellsScreen, gear: gearScreen, more: moreScreen };
+  const screens = { stats: statsScreen, combat: combatScreen, skills: skillsScreen, spells: spellsScreen, gear: gearScreen, notes: notesScreen, more: moreScreen };
   return h('div', { class: 'sheet' },
     sheetHeader(),
     h('main', { class: 'screen', id: 'screen' }, screens[S.tab]()),
@@ -276,17 +316,15 @@ function poolCard(pool) {
   const hurt = pool.current < pool.max;
   const kind = pool.id === 'hp' ? 'hp' : pool.id === 'fp' ? 'fp' : 'other';
   const set = v => track(d => gcs.setPoolCurrent(d, pool.id, v));
-  const ask = () => {
-    const answer = prompt(`Set current ${pool.name} (max ${pool.max})`, String(pool.current));
-    if (answer == null) return;
-    const v = parseInt(answer, 10);
-    if (Number.isFinite(v)) set(v); else toast('Enter a whole number.');
-  };
+  const ask = () => numberSheet({
+    title: pool.fullName || pool.name, current: pool.current, max: pool.max,
+    subtractLabel: pool.id === 'hp' ? 'Damage' : 'Spend', addLabel: pool.id === 'hp' ? 'Heal' : 'Recover', apply: set,
+  });
   return h('div', { class: `pool ${kind}` },
     h('div', { class: 'pool-top' },
       h('span', { class: 'label' }, pool.name),
       h('span', { class: `status${hurt ? ' hurt' : ''}`, title: pool.statusExplanation || null }, pool.status)),
-    h('button', { type: 'button', class: 'pool-val', 'aria-label': `${pool.name} ${pool.current} of ${pool.max}. Tap to set exactly.`, onclick: ask },
+    h('button', { type: 'button', class: 'pool-val', 'aria-label': `${pool.name} ${pool.current} of ${pool.max}. Tap to enter an amount.`, onclick: ask },
       String(pool.current), h('span', { class: 'pool-max' }, ` / ${pool.max}`)),
     h('div', { class: 'bar' }, h('div', { class: 'bar-fill', style: { width: `${pct}%` } })),
     h('div', { class: 'pool-btns' },
@@ -301,13 +339,13 @@ function statsScreen() {
   const e = c.encumbrance;
   const fmt = v => (typeof v === 'number' && !Number.isInteger(v) ? v.toFixed(2) : String(v));
   return [
-    plainSection('Attributes',
+    box('Attributes', '',
       h('div', { class: 'tiles cols-4' }, c.attributes.primary.map(a =>
         h('div', { class: 'tile' }, h('span', { class: 'label' }, a.name), h('span', { class: 'tile-v big' }, fmt(a.value)), h('span', { class: 'tile-n' }, a.fullName))))),
-    c.attributes.secondary.length ? plainSection('Secondary',
+    c.attributes.secondary.length ? box('Secondary', plural(c.attributes.secondary.length, 'stat'),
       h('div', { class: 'card list' }, c.attributes.secondary.map(a =>
         h('div', { class: 'row' }, h('span', { class: 'row-main' }, h('span', { class: 'row-title' }, a.fullName)), h('span', { class: 'row-num' }, fmt(a.value)))))) : null,
-    plainSection('Load & Movement',
+    box('Load & Movement', `${e.name} load`,
       h('div', { class: 'card pad' },
         h('div', { class: 'spread' }, h('strong', null, e.overloaded ? 'Overloaded' : `${e.name} encumbrance`), h('span', { class: 'muted small' }, `${e.carriedText} carried`)),
         h('div', { class: 'enc' }, e.levels.map((l, i) =>
@@ -351,14 +389,14 @@ function combatScreen() {
   const block = bestDefense(melee, 'block');
   const mods = [...c.modifiers.reactions.map(m => ({ ...m, kind: 'Reaction' })), ...c.modifiers.conditional];
   return [
-    plainSection('Active Defenses',
+    box('Active Defenses', '',
       h('div', { class: 'tiles cols-3' },
         h('div', { class: 'tile' }, h('span', { class: 'label' }, 'Dodge'), h('span', { class: 'tile-v big' }, String(c.encumbrance.dodge ?? '—')), h('span', { class: 'tile-n' }, `${c.encumbrance.name} load`)),
         h('div', { class: 'tile' }, h('span', { class: 'label' }, 'Parry'), h('span', { class: 'tile-v big' }, parry ? parry.text : '—'), h('span', { class: 'tile-n' }, parry ? parry.name : 'No parry')),
         h('div', { class: 'tile' }, h('span', { class: 'label' }, 'Block'), h('span', { class: 'tile-v big' }, block ? block.text : '—'), h('span', { class: 'tile-n' }, block ? block.name : 'No shield')))),
-    melee.length ? plainSection('Melee Attacks', melee.map(w => weaponCard(w, false))) : null,
-    ranged.length ? plainSection('Ranged Attacks', ranged.map(w => weaponCard(w, true))) : null,
-    c.hitLocations.length ? plainSection('Hit Locations & DR',
+    melee.length ? box('Melee Attacks', plural(melee.length, 'attack'), melee.map(w => weaponCard(w, false))) : null,
+    ranged.length ? box('Ranged Attacks', plural(ranged.length, 'attack'), ranged.map(w => weaponCard(w, true))) : null,
+    c.hitLocations.length ? box('Hit Locations & DR', plural(c.hitLocations.length, 'location'),
       h('div', { class: 'card list' },
         h('div', { class: 'loc loc-head' }, h('span', null, 'Roll'), h('span', null, 'Location'), h('span', { class: 'r' }, 'To hit'), h('span', { class: 'r' }, 'DR')),
         c.hitLocations.map(l => h('div', { class: 'loc' },
@@ -366,7 +404,7 @@ function combatScreen() {
           h('span', null, l.name),
           h('span', { class: 'r' }, l.penalty ? signed(l.penalty) : '0'),
           h('span', { class: `r dr${l.dr ? '' : ' muted'}` }, [String(l.dr), ...l.drOther.map(o => `${o.value} ${DR_ABBR[o.type] ?? o.type}`)].join(' · ')))))) : null,
-    mods.length ? plainSection('Reactions & Modifiers',
+    mods.length ? box('Reactions & Modifiers', plural(mods.length, 'modifier'),
       h('div', { class: 'card list' }, mods.map(m =>
         h('div', { class: 'row top' },
           h('span', { class: `mod-n ${m.amount < 0 ? 'neg' : 'pos'}` }, signed(m.amount)),
@@ -397,7 +435,7 @@ function skillsScreen() {
   if (!names.includes(S.skillFilter)) S.skillFilter = 'All';
   const results = h('div', { class: 'results' }, skillResults());
   return [
-    searchBox('Search skills', S.skillQuery, e => { S.skillQuery = e.target.value; results.replaceChildren(skillResults()); }),
+    searchBox('Search skills', S.skillQuery, e => { S.skillQuery = e.target.value; fill(results, skillResults()); }),
     names.length > 2 ? h('div', { class: 'filters' }, names.map(n =>
       h('button', { type: 'button', class: `pill${n === S.skillFilter ? ' on' : ''}`, 'aria-pressed': String(n === S.skillFilter), onclick: () => { S.skillFilter = n; render(); } }, n))) : null,
     results,
@@ -437,7 +475,7 @@ function spellLeaf(n, depth) {
 function spellsScreen() {
   const results = h('div', { class: 'results' }, spellResults());
   return [
-    searchBox('Search spells', S.spellQuery, e => { S.spellQuery = e.target.value; results.replaceChildren(spellResults()); }),
+    searchBox('Search spells', S.spellQuery, e => { S.spellQuery = e.target.value; fill(results, spellResults()); }),
     results,
   ];
 }
@@ -454,23 +492,25 @@ function spellResults() {
 
 // ---------- Gear ----------
 
-function stepper(label, valueText, onDec, onInc, decDisabled, incDisabled) {
+/** − value + control; tapping the value opens number entry for big changes. */
+function stepper({ label, value, text, max = Infinity, set }) {
+  const stop = fn => e => { e.stopPropagation(); fn(); };
   return h('div', { class: 'stepper' },
-    h('button', { type: 'button', class: 'step', 'aria-label': `${label}: one less`, disabled: decDisabled, onclick: e => { e.stopPropagation(); onDec(); } }, '−'),
-    h('span', { class: 'step-v' }, valueText),
-    h('button', { type: 'button', class: 'step', 'aria-label': `${label}: one more`, disabled: incDisabled, onclick: e => { e.stopPropagation(); onInc(); } }, '+'));
+    h('button', { type: 'button', class: 'step', 'aria-label': `${label}: one less`, disabled: value <= 0, onclick: stop(() => set(value - 1)) }, '−'),
+    h('button', { type: 'button', class: 'step-v', 'aria-label': `${label}: ${text}. Tap to enter an amount.`,
+      onclick: stop(() => numberSheet({ title: label, current: value, min: 0, max, apply: set })) }, text),
+    h('button', { type: 'button', class: 'step', 'aria-label': `${label}: one more`, disabled: value >= max, onclick: stop(() => set(value + 1)) }, '+'));
 }
 
 function usesStepper(n) {
-  return stepper(`${n.title} uses`, `${n.uses ?? 0}/${n.maxUses}`,
-    () => track(d => gcs.setUses(d, n.id, (n.uses ?? 0) - 1)), () => track(d => gcs.setUses(d, n.id, (n.uses ?? 0) + 1)),
-    (n.uses ?? 0) <= 0, (n.uses ?? 0) >= n.maxUses);
+  const value = n.uses ?? 0;
+  return stepper({ label: `${n.title} uses`, value, text: `${value}/${n.maxUses}`, max: n.maxUses,
+    set: v => track(d => gcs.setUses(d, n.id, v)) });
 }
 
 function qtyStepper(n) {
-  return stepper(`${n.title} quantity`, `×${n.quantity}`,
-    () => track(d => gcs.setQuantity(d, n.id, n.quantity - 1)), () => track(d => gcs.setQuantity(d, n.id, n.quantity + 1)),
-    n.quantity <= 0, false);
+  return stepper({ label: n.title, value: n.quantity, text: `×${n.quantity}`,
+    set: v => track(d => gcs.setQuantity(d, n.id, v)) });
 }
 
 function itemRow(n, depth) {
@@ -521,8 +561,8 @@ function gearScreen() {
       h('div', { class: 'spread' }, h('strong', null, `${e.carriedText} carried`), h('span', { class: 'accent small' }, e.overloaded ? 'Overloaded' : `${e.name} load`)),
       h('p', { class: 'muted small' }, `Carried value ${value.toLocaleString()} · Basic Lift ${c.derived.basicLift}`),
       h('p', { class: `small saved${S.savedAt ? ' on' : ''}` }, icon('check', 14), saved)),
-    c.equipment.length ? plainSection('Carried', h('div', { class: 'card list' }, gearTree(c.equipment, 0))) : null,
-    c.otherEquipment.length ? plainSection('Other Equipment', h('div', { class: 'card list' }, gearTree(c.otherEquipment, 0))) : null,
+    c.equipment.length ? box('Carried', `${plural(c.equipment.length, 'item')} · ${e.carriedText}`, h('div', { class: 'card list' }, gearTree(c.equipment, 0))) : null,
+    c.otherEquipment.length ? box('Other Equipment', plural(c.otherEquipment.length, 'item'), h('div', { class: 'card list' }, gearTree(c.otherEquipment, 0))) : null,
     !c.equipment.length && !c.otherEquipment.length ? h('div', { class: 'card empty' }, h('p', null, 'No equipment on this sheet.')) : null,
   ];
 }
@@ -537,8 +577,73 @@ function traitLeaf(n, depth) {
     h('span', { class: `pts-chip ${n.points < 0 ? 'neg' : n.points > 0 ? 'pos' : ''}` }, signed(n.points)));
 }
 
+// ---------- Notes (editable) ----------
+
+function startNoteEdit(key, text) {
+  S.editNote = key;
+  S.noteDraft = text;
+  render();
+  const area = document.querySelector('.note-editor textarea');
+  if (area) { area.focus(); area.setSelectionRange(area.value.length, area.value.length); }
+}
+
+function saveNote() {
+  const text = S.noteDraft.trim();
+  if (!text) { toast('Write something first, or delete the note.'); return; }
+  const key = S.editNote;
+  S.editNote = null;
+  if (key.startsWith('new:')) track(d => gcs.addNote(d, key.slice(4) || null, text));
+  else track(d => gcs.setNoteText(d, key, text));
+}
+
+function deleteNote(id) {
+  if (!confirm('Delete this note?')) return;
+  S.editNote = null;
+  track(d => gcs.deleteNote(d, id));
+}
+
+function noteEditor(existingId) {
+  return h('div', { class: 'note-editor' },
+    h('textarea', { rows: '6', 'aria-label': 'Note text', placeholder: 'Write a note…', oninput: e => { S.noteDraft = e.target.value; } }, S.noteDraft),
+    h('div', { class: 'note-actions' },
+      existingId ? h('button', { type: 'button', class: 'btn ghost danger-text', onclick: () => deleteNote(existingId) }, icon('trash', 18), 'Delete') : h('span'),
+      h('span', { class: 'grow' }),
+      h('button', { type: 'button', class: 'btn ghost', onclick: () => { S.editNote = null; render(); } }, 'Cancel'),
+      h('button', { type: 'button', class: 'btn primary', onclick: saveNote }, 'Save')));
+}
+
 function noteLeaf(n, depth) {
-  return h('p', { class: `note-text row-pad depth-${Math.min(depth, 3)}` }, n.text);
+  const pad = `depth-${Math.min(depth, 3)}`;
+  if (S.editNote === n.id) return h('div', { class: `note ${pad}` }, noteEditor(n.id));
+  return h('div', { class: `note ${pad}` },
+    h('p', { class: 'note-text' }, n.text),
+    h('button', { type: 'button', class: 'icon-btn note-edit', 'aria-label': 'Edit note', onclick: () => startNoteEdit(n.id, n.text) }, icon('edit', 18)));
+}
+
+function notesScreen() {
+  const sections = S.char.notes;
+  const addingTop = S.editNote === 'new:';
+  return [
+    addingTop
+      ? h('div', { class: 'card pad' }, h('span', { class: 'label' }, 'New note'), noteEditor(null))
+      : h('button', { type: 'button', class: 'btn primary wide', onclick: () => startNoteEdit('new:', '') }, icon('plus', 20), 'Add note'),
+    sections.length ? null : h('div', { class: 'card empty' }, h('p', null, 'No notes yet.'), h('p', { class: 'muted small' }, 'Notes you add here are saved into the character file, so they also show up in GCS.')),
+    sections.map(s => {
+      const adding = S.editNote === `new:${s.id}`;
+      return section(`note:${s.id}`, s.synthetic ? 'Notes' : s.title, plural(s.count, 'note'),
+        () => h('div', { class: 'card list' },
+          treeRows(s.children, 'note', noteLeaf),
+          s.synthetic ? null : adding
+            ? h('div', { class: 'note' }, noteEditor(null))
+            : h('button', { type: 'button', class: 'row add-row', onclick: () => startNoteEdit(`new:${s.id}`, '') }, icon('plus', 18), h('span', { class: 'row-main' }, h('span', { class: 'row-title' }, `Add to ${s.title}`)))),
+        { forceOpen: adding || sectionHasEdit(s) });
+    }),
+    h('p', { class: `small saved center${S.savedAt ? ' on' : ''}` }, S.savedAt ? `Saved on this phone · ${S.savedAt.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}` : 'Notes save into the character file on this phone'),
+  ];
+}
+
+function sectionHasEdit(node) {
+  return (node.children || []).some(c => c.id === S.editNote || sectionHasEdit(c));
 }
 
 function moreScreen() {
@@ -549,18 +654,16 @@ function moreScreen() {
   const attrPts = [...c.attributes.primary, ...c.attributes.secondary, ...c.attributes.pools].reduce((n, a) => n + a.points, 0);
   const breakdown = [['Attrib.', attrPts], ['Traits', sum(c.traits)], ['Skills', sum(c.skills)], ['Spells', sum(c.spells)], ['Unspent', c.points.unspent]];
   return [
-    plainSection('Profile',
+    box('Profile', '',
       facts.length ? h('div', { class: 'card pad facts three' }, facts.map(([k, v]) => h('div', { class: 'fact' }, h('span', { class: 'label' }, k), h('span', null, v)))) : null,
       p.organization || p.player ? h('div', { class: 'card pad spread' },
         p.organization ? h('div', { class: 'fact' }, h('span', { class: 'label' }, 'Organization'), h('span', null, p.organization)) : h('span'),
         p.player ? h('div', { class: 'fact', style: { alignItems: 'flex-end', textAlign: 'right' } }, h('span', { class: 'label' }, 'Player'), h('span', null, p.player)) : null) : null),
-    plainSection('Point Summary',
+    box('Point Summary', `${c.points.total} total`,
       h('div', { class: 'tiles cols-5' }, breakdown.map(([k, v]) =>
         h('div', { class: `tile${k === 'Unspent' && v ? ' hi' : ''}` }, h('span', { class: 'tile-v' }, String(v)), h('span', { class: 'tile-n' }, k))))),
     c.traits.map(s => section(`trait:${s.id}`, s.title, `${plural(s.count, 'trait')} · ${plural(s.points, 'pt')}`,
       () => h('div', { class: 'card list' }, treeRows(s.children, 'trait', traitLeaf)))),
-    c.notes.map(s => section(`note:${s.id}`, s.synthetic ? 'Notes' : s.title, plural(s.count, 'note'),
-      () => h('div', { class: 'card list' }, treeRows(s.children, 'note', noteLeaf)))),
     c.points.record.length ? section('log', 'Point Log', plural(c.points.record.length, 'entry', 'entries'),
       () => h('div', { class: 'card list' }, c.points.record.map(r =>
         h('div', { class: 'row top' },

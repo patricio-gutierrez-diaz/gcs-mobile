@@ -209,3 +209,29 @@ button.row, .row[role="button"] { cursor: pointer; }
   .cols-5 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .facts.three { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
+
+/* ---------- number entry sheet ---------- */
+.overlay { position: fixed; inset: 0; z-index: 30; display: flex; align-items: flex-start; justify-content: center; padding: calc(12vh + env(safe-area-inset-top)) 16px 16px; background: rgba(8, 9, 12, 0.66); }
+.num-sheet { width: 100%; max-width: 420px; display: flex; flex-direction: column; gap: 12px; padding: 16px; border-radius: 16px; background: var(--card-2); border: 1px solid var(--line-2); box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5); }
+.num-input { width: 100%; height: 56px; padding: 0 14px; border-radius: 12px; border: 1px solid var(--line-2); background: var(--bg); color: var(--text); font: inherit; font-size: 26px; font-weight: 700; text-align: center; }
+.num-input:focus { outline: 2px solid var(--accent); outline-offset: 0; }
+.num-btns { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.num-btns .btn { padding: 0 6px; font-size: 14px; }
+.btn.ghost { background: transparent; border-color: transparent; color: var(--muted); }
+button.step-v { min-height: 44px; padding: 0 4px; border: none; border-radius: 8px; background: none; font-size: 15px; cursor: pointer; text-decoration: underline dotted var(--accent-line); text-underline-offset: 4px; }
+button.pool-val { text-decoration: underline dotted var(--line-2); text-underline-offset: 5px; }
+
+/* ---------- notes ---------- */
+.note { display: flex; align-items: flex-start; gap: 8px; padding: 12px 0; }
+.note .note-text { flex: 1; min-width: 0; }
+.note-edit { margin: -10px -10px -10px 0; flex-shrink: 0; }
+.note-editor { flex: 1; display: flex; flex-direction: column; gap: 10px; }
+.note-editor textarea { width: 100%; min-height: 120px; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line-2); background: var(--bg); color: var(--text); font: inherit; font-size: 16px; line-height: 1.45; resize: vertical; }
+.note-editor textarea:focus { outline: 2px solid var(--accent); outline-offset: 0; }
+.note-actions { display: flex; align-items: center; gap: 8px; }
+.note-actions .btn { min-height: 44px; padding: 0 14px; }
+.grow { flex: 1; }
+.danger-text { color: var(--neg) !important; }
+.add-row { min-height: 50px; gap: 10px; color: var(--accent-text); }
+.add-row .row-title { color: var(--accent-text); font-weight: 600; }
+.card.list > .note + .add-row, .card.list > .note + .note { border-top: 1px solid var(--line); }

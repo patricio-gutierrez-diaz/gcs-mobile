@@ -1,7 +1,7 @@
 // sw.js — lets the installed app open with no signal.
-// Strategy: answer from the cache right away, refresh the cache in the background,
-// so a new version shows up on the next launch after it is published.
-const CACHE = 'gcs-mobile-v1';
+// App files come from the network when it answers within 3 seconds (so updates
+// show up right away) and from the cache otherwise; fonts come from the cache.
+const CACHE = 'gcs-mobile-v2';
 const CORE = [
   './',
   'index.html',
@@ -37,11 +37,25 @@ self.addEventListener('fetch', event => {
 
   event.respondWith(caches.open(CACHE).then(async cache => {
     const key = req.mode === 'navigate' ? 'index.html' : req;
-    const cached = await cache.match(key);
-    const fresh = fetch(req).then(res => {
+    // Fonts never change: cache first.
+    if (fonts) {
+      const hit = await cache.match(key);
+      if (hit) return hit;
+      const res = await fetch(req);
       if (res.ok || res.type === 'opaque') cache.put(key, res.clone());
       return res;
-    }).catch(() => cached);
-    return cached || fresh;
+    }
+    // App files: try the network (so updates arrive at once), fall back to the
+    // cached copy when offline or when the network takes more than 3 seconds.
+    const network = fetch(req).then(res => {
+      if (res.ok) cache.put(key, res.clone());
+      return res;
+    });
+    const timeout = new Promise(resolve => setTimeout(resolve, 3000));
+    try {
+      const res = await Promise.race([network, timeout]);
+      if (res) return res;
+    } catch { /* offline */ }
+    return (await cache.match(key)) || network;
   }));
 });
